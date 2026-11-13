@@ -188,6 +188,7 @@ end
 
 ---Show the toolbar in a notebook window.
 ---@param win integer
+-- selene: allow(global_usage)
 function M.attach(win)
   if not _G.CellbookToolbarClick then
     -- v:lua click handlers must be global functions

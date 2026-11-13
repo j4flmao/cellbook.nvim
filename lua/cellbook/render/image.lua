@@ -368,10 +368,10 @@ function M.on_refresh(nb, info)
 end
 
 ---Open the first image output of a cell with the system viewer.
----@param nb cellbook.Notebook
+---@param _ cellbook.Notebook
 ---@param cell cellbook.Cell
 ---@return boolean found
-function M.open_external(nb, cell)
+function M.open_external(_, cell)
   for _, o in ipairs(cell.outputs) do
     if o.data then
       for _, mime in ipairs({ "image/png", "image/jpeg", "image/gif", "image/svg+xml" }) do

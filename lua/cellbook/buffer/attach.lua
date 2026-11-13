@@ -29,11 +29,14 @@ end
 ---@param b string
 ---@return boolean
 function M.same_path(a, b)
-  a, b = M.normalize(a), M.normalize(b)
-  if is_windows then
-    return a:lower() == b:lower()
+  -- resolve symlinks (e.g. macOS /var -> /private/var) when the files exist
+  local function canon(p)
+    p = M.normalize(p)
+    local real = vim.uv.fs_realpath(p)
+    p = real and vim.fs.normalize(real) or p
+    return is_windows and p:lower() or p
   end
-  return a == b
+  return canon(a) == canon(b)
 end
 
 ---Read a whole file synchronously (BufReadCmd must fill the buffer before returning).

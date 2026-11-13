@@ -234,6 +234,15 @@ local enums = {
   ["kernel.cwd"] = { "notebook", "cwd" },
 }
 
+---Option tables whose contents are free-form (not validated key by key).
+local free_form = {
+  ["ui.icons"] = true,
+  ["ui.spinner"] = true,
+  ["output.mime_priority"] = true,
+  ["uv.with"] = true,
+  ["uv.args"] = true,
+}
+
 ---Validate user options. Returns a list of warnings (never throws for unknown keys).
 ---@param opts table
 ---@return string[] warnings
@@ -261,21 +270,13 @@ function M.validate(opts)
         elseif type(v) ~= "string" and v ~= false then
           return warnings, ("cellbook: keymaps.%s must be a string or false"):format(k)
         end
-      elseif
-        prefix == "ui.icons"
-        or prefix == "ui.spinner"
-        or prefix == "output.mime_priority"
-        or prefix == "uv.with"
-        or prefix == "uv.args"
-      then
-        -- free-form tables
-      elseif not expected then
+      elseif not expected and not free_form[prefix] then
         local s = M.suggest(key)
         warnings[#warnings + 1] = ("cellbook: unknown option `%s`%s"):format(
           key,
           s and (" (did you mean `" .. s .. "`?)") or ""
         )
-      else
+      elseif expected then -- (free-form tables such as ui.icons are not validated)
         local list = type(expected) == "table" and expected or { expected }
         if not vim.tbl_contains(list, type(v)) then
           return warnings, ("cellbook: option `%s` must be %s, got %s"):format(key, table.concat(list, "|"), type(v))
