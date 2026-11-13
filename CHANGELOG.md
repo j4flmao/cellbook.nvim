@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. Releases are generated
 by release-please from Conventional Commits.
 
+## 1.0.0 (2026-11-13)
+
+
+### Features
+
+* cellbook.nvim — Jupyter notebooks in Neovim ([088bb0c](https://github.com/j4flmao/cellbook.nvim/commit/088bb0c0102ad74f3fe4a87b934fdef6dd462357))
+
+
+### Bug Fixes
+
+* first cell output lost on fast machines; CI on Linux/macOS ([f55ed05](https://github.com/j4flmao/cellbook.nvim/commit/f55ed058740015de8891addb098ab4ee5f12dc45))
+* saving through symlinked paths; selene warnings ([e1d882d](https://github.com/j4flmao/cellbook.nvim/commit/e1d882de1249bba664d29f7e35fd4fadd558ac63))
+
 ## [Unreleased]
 
 ### Added
