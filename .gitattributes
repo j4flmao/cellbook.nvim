@@ -1,0 +1,11 @@
+# Source files always use LF, on every platform.
+* text=auto eol=lf
+
+# Fixtures must stay byte-for-byte as generated (round-trip tests, CRLF fixture).
+tests/fixtures/** -text
+*.ipynb -text
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.gif binary

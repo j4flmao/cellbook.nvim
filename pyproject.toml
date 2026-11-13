@@ -1,0 +1,48 @@
+# Development environment for cellbook.nvim (the plugin itself needs no Python
+# packaging: the bridge is a single stdlib + jupyter_client script).
+#
+#   uv sync                 # create .venv with the dev tools
+#   uv run pytest           # bridge tests
+#   uv run ruff check       # lint
+#   uv run ruff format      # format
+
+[project]
+name = "cellbook-nvim-dev"
+version = "0.1.0"
+description = "Development environment for the cellbook.nvim kernel bridge"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "jupyter_client>=8",
+  "ipykernel>=6",
+  "nbformat>=5.9",
+  "pytest>=8",
+  "ruff>=0.6",
+  "pillow>=11.3.0",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+src = ["python", "scripts", "tests/python"]
+extend-exclude = ["tests/fixtures", "*.ipynb", ".tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE"]
+ignore = ["UP006", "UP007", "UP035", "UP031", "UP045"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["BLE001"]
+"scripts/make_*.py" = ["E501"]

@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua plugin tests
+      - uses: NTBBloodbath/selene-action@v1.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: lua plugin
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        nvim: [stable, nightly]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Python dev environment
+        run: uv sync
+      - name: Fixtures
+        run: uv run scripts/make_fixtures.py --bench
+      - name: Bridge tests (pytest)
+        run: uv run pytest
+      - name: Lua unit + integration
+        run: ./scripts/test.sh
+      - name: End-to-end (real kernel)
+        run: ./scripts/test.sh e2e
+      - name: Benchmarks (non-blocking)
+        continue-on-error: true
+        run: ./scripts/test.sh bench | tee -a "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    runs-on: windows-latest
+    continue-on-error: true # tier 2 (best effort)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run scripts/make_fixtures.py
+      - run: uv run pytest
+      - shell: bash
+        run: ./scripts/test.sh
+
+  helptags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+      - run: nvim --headless -c "helptags doc" -c "qa!"

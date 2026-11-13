@@ -1,0 +1,7 @@
+# For contributors not using uv (uv users: `uv sync`, see pyproject.toml).
+#   python3 -m venv .venv && . .venv/bin/activate && pip install -r python/requirements-dev.txt
+jupyter_client>=8
+ipykernel>=6
+nbformat>=5.9
+pytest>=8
+ruff>=0.6

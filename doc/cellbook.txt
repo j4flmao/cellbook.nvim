@@ -1,0 +1,475 @@
+*cellbook.txt*  Jupyter notebooks in Neovim
+
+                                                          *cellbook* *cellbook.nvim*
+Open the .ipynb, run it, see the plots. No browser, no conversion, no remote
+plugin host.
+
+==============================================================================
+CONTENTS                                                    *cellbook-contents*
+
+  1. Introduction ............................ |cellbook-intro|
+  2. Installation & setup .................... |cellbook-install|
+  3. Python and kernels ...................... |cellbook-python|
+  4. Editing notebooks ....................... |cellbook-editing|
+  5. Running cells ........................... |cellbook-running|
+  6. Outputs and images ...................... |cellbook-outputs|
+  7. Commands ................................ |cellbook-commands|
+  8. Keymaps ................................. |cellbook-keymaps|
+  9. Configuration ........................... |cellbook-config|
+ 10. Lua API ................................. |cellbook-api|
+ 11. Events .................................. |cellbook-events|
+ 12. Highlight groups ........................ |cellbook-highlights|
+ 13. Renderer adapters ....................... |cellbook-renderers|
+ 14. LSP ..................................... |cellbook-lsp|
+ 15. Troubleshooting ......................... |cellbook-troubleshooting|
+
+==============================================================================
+1. INTRODUCTION                                                *cellbook-intro*
+
+cellbook.nvim intercepts reading and writing of `*.ipynb` files. A notebook is
+shown as one buffer in "percent" format: each cell is a delimiter line followed
+by its source. Code cells are real text with the kernel language's filetype,
+so LSP, Treesitter, completion and your mappings work unchanged. Outputs are
+rendered with extmarks (virtual lines and images) and are never buffer text.
+
+Saving writes nbformat 4.x JSON with Jupyter's own formatting (`indent=1`,
+sorted keys, `ensure_ascii=False`, trailing newline). An unmodified notebook
+is written back byte-identical; unchanged cells keep their original JSON.
+
+==============================================================================
+2. INSTALLATION & SETUP                                      *cellbook-install*
+
+lazy.nvim: >lua
+    { "j4flmao/cellbook.nvim" }
+<
+Neovim 0.12 |vim.pack|: >lua
+    vim.pack.add({ "https://github.com/j4flmao/cellbook.nvim" })
+<
+No |cellbook.setup()| call is needed. Run |:checkhealth| `cellbook` and follow
+the fix commands it prints. The plugin file only registers autocommands and
+|:Cellbook|; nothing is loaded until a notebook is opened (startup < 1 ms).
+
+Requirements: Neovim >= 0.11. Running cells needs uv, or Python >= 3.9 with
+`jupyter_client` and a kernel such as `ipykernel` (see |cellbook-python|).
+
+Try the plugin from a checkout: >sh
+    nvim -u tests/minimal_init.lua examples/demo.ipynb
+<
+==============================================================================
+3. PYTHON AND KERNELS                                         *cellbook-python*
+
+Kernels are driven by a small bridge script (`python/cellbook_bridge.py`)
+that talks newline-delimited JSON over stdin/stdout and uses `jupyter_client`.
+One bridge process runs one kernel; it is started on the first execution and
+shut down on |VimLeavePre| or when the notebook buffer is unloaded.
+
+The bridge is started with the first working candidate of:
+
+  1. `python` option (string path, or a full command list)
+  2. `$VIRTUAL_ENV`, then `$CONDA_PREFIX`
+  3. uv: `uv run --quiet --with jupyter_client>=8 --with ipykernel>=6 python`
+     run in the notebook directory, so a uv project's environment (and its
+     packages, e.g. pandas) is used with the Jupyter packages layered on top.
+     Controlled by `uv.enabled`, `uv.with`, `uv.args`.
+  4. the nearest `.venv` directory above the notebook
+  5. `python3`, then `python` (Windows Store stubs are skipped)
+
+A candidate that cannot import `jupyter_client` is skipped automatically.
+
+                                                       *cellbook-select-kernel*
+Select Kernel (toolbar kernel button, `<localleader>K`, `:Cellbook kernel`)
+lists, like VS Code:
+  - Python environments: `.venv`/`venv`/`env` next to or above the notebook,
+    `$VIRTUAL_ENV`, conda environments, interpreters installed by uv, and
+    `python3`/`python` on $PATH;
+  - Jupyter kernels: kernelspecs installed in the Jupyter data directories.
+Picking a Python environment runs ipykernel *inside that environment* (with
+uv the Jupyter packages are layered on top, so nothing has to be installed in
+it; without uv the environment needs `jupyter_client` and `ipykernel`). The
+choice is remembered per notebook (`stdpath("data")/cellbook/kernels.json`),
+written to the notebook's kernelspec metadata, and the kernel is restarted.
+
+Without a choice, the notebook's `metadata.kernelspec.name` is used; when it
+is missing, `kernel.default`, or a prompt with |vim.ui.select|.
+
+Kernelspecs whose command is `python` run in the bridge's interpreter, so the
+default `python3` kernel sees the same environment as the bridge.
+
+==============================================================================
+4. EDITING NOTEBOOKS                                         *cellbook-editing*
+
+Buffer layout: >
+    # %% [markdown]
+    # # Title
+    #
+    # Some text.
+    # %%
+    x = 1
+    x + 1
+<
+Code cells are drawn as cards (tinted background) whose delimiter line shows
+a header: `▶ [3]` (run state and execution count) on the left, duration and
+language on the right. Markdown cells are rendered: heading marks, emphasis
+markers, backticks and link targets are concealed, bullets are drawn, `#`/`##`
+headings are underlined. In Insert mode the markdown cell you edit shows its
+raw text. The delimiter of a markdown cell looks like an empty line.
+
+                                                              *cellbook-toolbar*
+The window bar shows a clickable toolbar: `+ Code`, `+ Markdown`, `Run All`,
+`Restart`, `Interrupt`, `Clear All Outputs`, `Outline` (jump to headings and
+cells) and, on the right, the kernel with its state — click it to select a
+kernel. Labels shrink to fit narrow windows. Disable with `ui.toolbar = false`. Markdown and raw cell lines carry the language's comment leader
+(`# ` for Python, `-- ` for Lua, ...); it is concealed (|'conceallevel'| 2 is
+set window-locally) and stripped on save. A line typed without the prefix is
+saved as-is.
+
+Cell boundaries are tracked with extmarks, not by parsing text:
+- A line that looks like `# %%` inside a cell stays content (a literal in a
+  string never splits a cell). Run |:Cellbook| `sync` to turn typed delimiter
+  lines into cells.
+- Deleting a delimiter line merges the cell into the previous one; |undo|
+  restores the original cell, including its outputs.
+- Structural operations (add, delete, move, split, merge, change type) are
+  single undo steps; undo/redo bring back the same cells with their outputs.
+- Editing the `[markdown]`/`[raw]` tag of a delimiter changes the cell type.
+- Text typed above the first delimiter becomes a new code cell.
+
+New cells get a fresh `id` when the notebook is nbformat >= 4.5; older
+notebooks never get ids. Converting a code cell to markdown/raw drops its
+outputs (nbformat rule).
+
+Writing:
+- `:w` writes the notebook atomically (temporary file + rename).
+- `:w other.ipynb` writes a copy; `:saveas` works.
+- `:w copy.py` or any non-.ipynb target writes the plain buffer text.
+- `:{range}w file` writes the selected lines as text.
+- `:r other.ipynb` inserts the cells of another notebook.
+
+Notebooks that cannot be parsed (invalid JSON, invalid UTF-8, nbformat 3) are
+shown read-only as raw text and are never overwritten.
+
+==============================================================================
+5. RUNNING CELLS                                             *cellbook-running*
+
+Execution is fully asynchronous. Cells are queued (FIFO); the header shows
+queued / running (spinner + elapsed time) / done (`[n]`, duration) / error /
+interrupted / cancelled, and "edited" when the source changed after the run.
+Running a markdown cell does nothing; an empty code cell just clears outputs.
+
+With `run_all.stop_on_error` (default), an error cancels the remaining queued
+cells, like JupyterLab. Interrupting also cancels the queue. When the kernel
+dies, the running cell shows a `DeadKernelError` and you are offered a restart
+on the next run.
+
+Note: on Windows, CPython cannot interrupt `time.sleep()`; running Python code
+is interrupted immediately.
+
+==============================================================================
+6. OUTPUTS AND IMAGES                                        *cellbook-outputs*
+
+Outputs are virtual lines below the cell. The MIME type shown is the first
+available in `output.mime_priority`; `text/html` falls back to `text/plain`
+(DataFrames are shown as text tables). ANSI colours are converted to
+highlights. Streams are merged and carriage returns rewrite the line (progress
+bars). Each output is truncated to `output.max_lines` with a "N more lines"
+marker; `<localleader>o` opens the full output in a scratch split.
+
+HTML tables (pandas DataFrames) are drawn as box tables with the index in a
+dim column and numbers right-aligned (`output.html_tables`). Tables wider than
+the window are split into blocks of columns (the index repeated in each);
+`<localleader>o` shows the full table in a split that scrolls horizontally. Outputs have a
+thin bar on their left (`ui.output_gutter`), red for errors.
+
+Images (`image/png`, `image/jpeg`, `image/svg+xml` when supported) are drawn
+by an image backend (|cellbook-renderers|), auto-detected in this order:
+snacks.nvim (`Snacks.image`, kitty graphics), image.nvim (not on Windows), and
+the built-in `sixel` adapter for terminals with Sixel graphics (Windows
+Terminal >= 1.22, WezTerm, foot, mlterm; force it with
+`image.backend = "sixel"`). The sixel adapter needs ImageMagick (`magick`).
+Each image is encoded once; sixel data is made of 6-pixel bands, so an image
+partly scrolled out of the window is drawn by sending only its visible bands.
+While scrolling, the terminal moves the pixels with the text; visible parts
+are repainted once scrolling settles (no screen clear). The screen is only
+refreshed when windows are resized/closed or images removed. On Windows the
+data is written to the terminal's console directly (the Neovim server's
+stderr does not reach Windows Terminal) and the cell size is measured from the
+Windows Terminal window; elsewhere it defaults to 8x16. Override with
+`image.cell_size = { w, h }` (pixels per cell). Without one, PNG/JPEG images are drawn with text
+characters in true colour (`image.blocks`): "sextant" (2×3 sub-pixels per
+cell, default) or "half" (`▀`, 1×2; use it if your font shows boxes for the
+sextant characters U+1FB00–U+1FB3B). This needs 'termguicolors' and Pillow in
+the bridge environment (included by default with uv). Shapes, bars and lines
+are clear, but text inside plots is too small to read at terminal resolution:
+press `<localleader>o` for the real image, or use a terminal with a graphics
+protocol (kitty, WezTerm, Ghostty) with snacks.nvim image for sharp plots. Image data is decoded once into
+`stdpath("cache")/cellbook/<sha256>.<ext>`. Without a backend a placeholder
+`[image/png 640×480 — open with <localleader>o]` is shown and `<localleader>o`
+opens the image with |vim.ui.open()|. ipywidgets show `[widget — not
+supported]`; their data is preserved on save.
+
+==============================================================================
+7. COMMANDS                                                  *cellbook-commands*
+
+                                                                    *:Cellbook*
+:Cellbook               Pick a subcommand with |vim.ui.select|.
+:Cellbook run           Run the current cell. With a range (`:'<,'>Cellbook
+                        run`) run those lines; output goes to the cell that
+                        contains the last line.
+:Cellbook run_next      Run the current cell and move to the next (a new cell
+                        is created after the last one).
+:Cellbook run_all       Run all cells.
+:Cellbook run_above     Run the cells above the current one.
+:Cellbook run_below     Run the current cell and all following cells.
+:Cellbook interrupt     Interrupt the kernel.
+:Cellbook restart [run_all]
+                        Restart the kernel (then run all cells).
+:Cellbook shutdown      Shut the kernel down.
+:Cellbook kernel        Select a kernel (saved in the notebook metadata).
+:Cellbook add [above|below] [code|markdown|raw]
+                        Add a cell (default: code cell below).
+:Cellbook delete        Delete the current cell.
+:Cellbook move up|down  Move the current cell.
+:Cellbook split         Split the cell at the cursor line.
+:Cellbook merge [below|above]
+                        Merge with the next (default) or previous cell.
+:Cellbook type [code|markdown|raw]
+                        Change the cell type (no argument: toggle
+                        code ↔ markdown).
+:Cellbook clear [all]   Clear outputs of the current (or every) cell.
+:Cellbook toggle [all]  Hide/show outputs of the current (or every) cell.
+:Cellbook open          Open the full output in a split / image externally.
+:Cellbook info          Notebook and kernel information in a float.
+:Cellbook log           Bridge and kernel log.
+:Cellbook raw           The JSON that `:w` would write, read-only.
+:Cellbook refresh       Re-render decorations and outputs (after config or
+                        colorscheme changes).
+:Cellbook sync          Turn typed delimiter lines into cells.
+
+==============================================================================
+8. KEYMAPS                                                    *cellbook-keymaps*
+
+Default mappings are buffer-local to notebook buffers and have a `desc`.
+
+  Action          Mode  Default            ~
+  next_cell       n     ]c                 (diff mode keeps its own ]c)
+  prev_cell       n     [c
+  inner_cell      o x   ic                 cell body
+  around_cell     o x   ac                 body + delimiter
+  run_and_next    n     <S-CR>
+  run_cell_stay   n     <C-CR>
+  run_selection   x     <C-CR>
+  run_cell        n     <localleader>r
+  run_all         n     <localleader>R
+  add_above       n     <localleader>a
+  add_below       n     <localleader>b
+  toggle_type     n     <localleader>m
+  delete_cell     n     <localleader>d
+  move_up         n     <localleader>k
+  move_down       n     <localleader>j
+  split_cell      n     <localleader>s
+  merge_below     n     <localleader>J
+  clear_output    n     <localleader>c
+  clear_all       n     <localleader>C
+  open_output     n     <localleader>o
+  interrupt       n     <localleader>i
+  restart         n     <localleader>0
+  select_kernel   n     <localleader>K
+
+`<S-CR>`/`<C-CR>` need a terminal that reports them (kitty, WezTerm, Ghostty,
+Alacritty, Windows Terminal). Remap with a table, disable one with `false`, or
+all with `keymaps = false`: >lua
+    require("cellbook").setup({ keymaps = { run_cell = "<leader>jr", run_all = false } })
+<
+==============================================================================
+9. CONFIGURATION                                               *cellbook-config*
+
+                                                             *cellbook.setup()*
+`require("cellbook").setup({opts})` is optional; it validates types (errors)
+and warns on unknown keys with a suggestion. Defaults: >lua
+    {
+      python = nil,             -- string path or command list; nil = auto
+      uv = {
+        enabled = "auto",       -- "auto" | true | false
+        with = { "jupyter_client>=8", "ipykernel>=6", "pillow" },
+        args = {},              -- extra `uv run` arguments
+      },
+      default_language = "python",
+      kernel = {
+        default = nil,          -- kernel when the notebook has none
+        autostart = false,      -- start the kernel when the notebook opens
+        shutdown_on_close = true,
+        cwd = "notebook",       -- "notebook" | "cwd"
+        start_timeout = 180,    -- seconds (first uv run may download packages)
+      },
+      run_all = { stop_on_error = true },
+      output = {
+        max_lines = 30,
+        max_line_width = nil,
+        show_stderr = true,
+        ansi = true,
+        mime_priority = { "image/png", "image/jpeg", "image/svg+xml", "text/markdown", "text/plain" },
+        virt_lines_leftcol = false,
+        html_tables = true,     -- DataFrames as box-drawn tables
+      },
+      image = {
+        backend = "auto",       -- "auto" | "snacks" | "image.nvim" | "sixel" | "none"
+        cell_size = nil,        -- sixel: { w, h } cell size in pixels
+        max_height = 30,
+        blocks = "sextant",     -- "sextant" | "half" | false (no graphics backend)
+        max_width = nil,
+        only_visible = true,
+      },
+      ui = {
+        cell_header = true,
+        show_execution_time = true,
+        conceal_comment_prefix = true,
+        border_char = "─",
+        toolbar = true,         -- clickable winbar (|cellbook-toolbar|)
+        render_markdown = true, -- render markdown cells
+        cell_padding = 2,       -- left padding inside code cells / outputs
+        output_gutter = "▎",    -- bar left of outputs ("" to disable)
+        icons = { running = "●", done = "✓", error = "✗", queued = "◷",
+                  stale = "*", interrupted = "⊘", cancelled = "⊘" },
+        spinner = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
+      },
+      lsp = { filter_magic_diagnostics = true },
+      keymaps = true,
+      save = { strip_outputs = false },
+      debug = false,            -- re-parse after every save (self-check)
+    }
+<
+                                                         *b:cellbook_config*
+Per-buffer overrides: `vim.b.cellbook_config = { output = { max_lines = 100 } }`
+then |:Cellbook| `refresh`.
+
+==============================================================================
+10. LUA API                                                       *cellbook-api*
+
+All functions take an optional {bufnr} (default: current buffer). On a buffer
+that is not a notebook they return `nil, "not a notebook buffer"`.
+
+cellbook.setup({opts})                                  see |cellbook.setup()|
+cellbook.is_notebook({bufnr})                       -> boolean
+cellbook.run_cell({bufnr}, {cell_index})            run current/1-based cell
+cellbook.run_cell_and_next({bufnr})
+cellbook.run_all({bufnr})
+cellbook.run_above({bufnr})                         cells before current
+cellbook.run_below({bufnr})                         current and following
+cellbook.run_range({bufnr}, {start_row}, {end_row}) 1-based lines
+cellbook.interrupt({bufnr})
+cellbook.restart({bufnr}, {opts})                   opts: { run_all = false }
+cellbook.shutdown({bufnr})
+cellbook.add_cell({bufnr}, {opts})      opts: { where = "below"|"above",
+                                                type = "code"|"markdown"|"raw" }
+cellbook.delete_cell({bufnr})
+cellbook.move_cell({bufnr}, {delta})                -1 up, +1 down
+cellbook.split_cell({bufnr})
+cellbook.merge_cell({bufnr}, {dir})                 "below"|"above"
+cellbook.set_cell_type({bufnr}, {type})
+cellbook.toggle_cell_type({bufnr})
+cellbook.goto_cell({bufnr}, {delta})                -> new index
+cellbook.clear_output({bufnr}, {opts})              opts: { all = false }
+cellbook.toggle_output({bufnr}, {opts})             opts: { all = false }
+cellbook.open_output({bufnr})
+cellbook.select_kernel({bufnr}, {callback})
+cellbook.kernel_info({bufnr})   -> { name, display_name, state, python } | nil
+cellbook.current_cell({bufnr})  -> { index, id, type, run_state,
+                                     execution_count } | nil
+cellbook.cell_count({bufnr})                        -> integer
+cellbook.statusline({bufnr})    -> string, e.g. " python3 ● idle  [3/12]"
+cellbook.register_renderer({adapter})               see |cellbook-renderers|
+
+Statusline example (lualine): >lua
+    { function() return require("cellbook").statusline() end,
+      cond = function() return require("cellbook").is_notebook() end }
+<
+==============================================================================
+11. EVENTS                                                     *cellbook-events*
+
+|User| autocommands with `data`:
+
+  CellbookAttached            { bufnr, path }
+  CellbookKernelStarted       { bufnr, kernel_name }
+  CellbookKernelStateChanged  { bufnr, state }
+  CellbookCellExecuted        { bufnr, cell_id, index, status,
+                                execution_count, duration_ms }
+  CellbookSaved               { bufnr, path }
+>lua
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "CellbookCellExecuted",
+      callback = function(ev)
+        if ev.data.duration_ms > 10000 then
+          vim.notify(("Cell %d finished in %.1fs"):format(ev.data.index, ev.data.duration_ms / 1000))
+        end
+      end,
+    })
+<
+==============================================================================
+12. HIGHLIGHT GROUPS                                       *cellbook-highlights*
+
+Defined with `default = true`; override them in your colorscheme.
+
+Linked groups:
+
+  CellbookOutput              Normal           plain output
+  CellbookOutputStderr        DiagnosticWarn   stderr stream
+  CellbookOutputError         DiagnosticError  tracebacks
+  CellbookOutputTruncated     NonText          "N more lines", placeholders
+  CellbookMagic               PreProc          %magic / !shell lines
+  CellbookRaw                 Comment          raw cell text
+
+Groups computed from the colorscheme (Normal background blended with the
+foreground; recomputed on |:colorscheme|; a definition of your own is kept):
+
+  CellbookCellBg, CellbookCellPad      code card background
+  CellbookCellHeader, CellbookCellCount, CellbookRunIcon, CellbookLang
+  CellbookRunning, CellbookDone, CellbookError, CellbookStale   run states
+  CellbookMarkdown                     markdown text
+  CellbookMdH1, CellbookMdH2, CellbookMdH3, CellbookMdRule      headings
+  CellbookMdCode, CellbookMdCodeBlock  inline code / fenced blocks
+  CellbookMdBold, CellbookMdItalic, CellbookMdLink, CellbookMdBullet,
+  CellbookMdQuote
+  CellbookOutputGutter, CellbookOutputGutterError   bar left of outputs
+  CellbookTableBorder, CellbookTableHeader, CellbookTableIndex  tables
+  CellbookPx*                          half-block image pixels (generated)
+  CellbookToolbar, CellbookToolbarButton, CellbookToolbarIcon,
+  CellbookToolbarSep, CellbookToolbarKernel, CellbookToolbarIdle,
+  CellbookToolbarBusy, CellbookToolbarDead
+
+ANSI colours use generated `CellbookAnsi_*` groups (the 16 base colours come
+from `g:terminal_color_N` when set).
+
+==============================================================================
+13. RENDERER ADAPTERS                                       *cellbook-renderers*
+
+Images are drawn by adapters. With `image.backend = "auto"` registered
+adapters are tried first, then snacks.nvim, then image.nvim; otherwise the
+placeholder is used. >lua
+    require("cellbook").register_renderer({
+      name = "my-backend",
+      available = function() return true end,   -- ok, reason
+      supports = function(mime) return mime == "image/png" end,
+      render = function(bufnr, row, file, opts) return handle end,
+      -- opts: { win, width, height }; row is the cell's last line (0-based)
+      clear = function(handle) end,
+    })
+<
+==============================================================================
+14. LSP                                                            *cellbook-lsp*
+
+The buffer is valid source code of the kernel language, so language servers
+attach by filetype. Diagnostics on IPython magics (`%time`), shell escapes
+(`!pip`), help syntax (`obj?`), delimiter lines and whole `%%` cell-magic
+cells are hidden (`lsp.filter_magic_diagnostics`).
+
+==============================================================================
+15. TROUBLESHOOTING                                   *cellbook-troubleshooting*
+
+- Run |:checkhealth| `cellbook`: it tests every Python candidate and prints
+  the exact command to fix what is missing.
+- `:Cellbook log` shows the bridge's stderr and the kernel's output.
+- `:Cellbook info` shows the interpreter, kernel, state and image backend.
+- Images in tmux need `tmux set -g allow-passthrough on`.
+- Report bugs with `:checkhealth cellbook` output and a minimal notebook.
+
+ vim:tw=78:ts=8:ft=help:norl:

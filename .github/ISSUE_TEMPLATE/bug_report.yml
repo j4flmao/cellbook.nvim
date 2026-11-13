@@ -1,0 +1,30 @@
+name: Bug report
+description: Something does not work (add "data-loss" to the title if a notebook was altered or corrupted)
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, expected and actual behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: health
+    attributes:
+      label: ":checkhealth cellbook output"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notebook
+    attributes:
+      label: Minimal notebook
+      description: Attach the smallest .ipynb that reproduces the problem (remove private data).
+  - type: input
+    id: versions
+    attributes:
+      label: Neovim version / OS / terminal
+      placeholder: "NVIM v0.11.5, Ubuntu 24.04, kitty 0.39"
+    validations:
+      required: true
