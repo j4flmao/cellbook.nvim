@@ -45,7 +45,7 @@ jobs:
       - name: Python dev environment
         run: uv sync
       - name: Fixtures
-        run: uv run scripts/make_fixtures.py --bench
+        run: uv run scripts/make_fixtures.py --bench-only
       - name: Bridge tests (pytest)
         run: uv run pytest
       - name: Lua unit + integration
@@ -67,7 +67,7 @@ jobs:
           version: stable
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
-      - run: uv run scripts/make_fixtures.py
+      - run: uv run scripts/make_fixtures.py --check
       - run: uv run pytest
       - shell: bash
         run: ./scripts/test.sh

@@ -316,23 +316,20 @@ def special_files() -> None:
     # VS Code style: source as a single string is legal nbformat; keep a hand-written file.
     doc = json.loads(basic)
     doc["cells"][1]["source"] = "x = 1\ny = 2\nx + y"
-    (FIXTURES / "string_source.ipynb").write_text(
-        json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n"
+    # write_bytes: identical bytes on every OS (and Path.write_text(newline=) needs Python 3.10)
+    (FIXTURES / "string_source.ipynb").write_bytes(
+        (json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
     )
     # Non-canonical formatting (indent=2, unsorted): must still round-trip unchanged.
-    (FIXTURES / "noncanonical_indent2.ipynb").write_text(
-        json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n"
-    )
+    (FIXTURES / "noncanonical_indent2.ipynb").write_bytes((json.dumps(doc, indent=2) + "\n").encode("utf-8"))
 
 
 def broken_files() -> None:
     bad = ROOT / "tests" / "fixtures" / "broken"
     bad.mkdir(parents=True, exist_ok=True)
-    (bad / "invalid_json.ipynb").write_text('{"cells": [}\n', encoding="utf-8")
-    (bad / "nbformat3.ipynb").write_text(
-        json.dumps({"nbformat": 3, "nbformat_minor": 0, "worksheets": [], "metadata": {}}, indent=1) + "\n",
-        encoding="utf-8",
-    )
+    (bad / "invalid_json.ipynb").write_bytes(b'{"cells": [}\n')
+    nb3 = {"nbformat": 3, "nbformat_minor": 0, "worksheets": [], "metadata": {}}
+    (bad / "nbformat3.ipynb").write_bytes((json.dumps(nb3, indent=1) + "\n").encode("utf-8"))
     (bad / "invalid_utf8.ipynb").write_bytes(
         b'{"cells": [], "metadata": {"x": "\xff\xfe"}, "nbformat": 4, "nbformat_minor": 5}\n'
     )
@@ -372,8 +369,15 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="validate only")
     ap.add_argument("--bench", action="store_true", help="also write the benchmark notebook")
+    ap.add_argument(
+        "--bench-only",
+        action="store_true",
+        help="validate the committed fixtures and write only the benchmark notebook (CI)",
+    )
     args = ap.parse_args(argv)
-    if not args.check:
+    if args.bench_only:
+        bench()
+    elif not args.check:
         for name, nb in fixtures().items():
             write(nb, FIXTURES / (name + ".ipynb"))
         special_files()

@@ -2,3 +2,5 @@ std = "lua51+vim"
 
 [lints]
 mixed_table = "allow"
+# error() with a table value is valid Lua (structured parse errors)
+incorrect_standard_library_use = "allow"

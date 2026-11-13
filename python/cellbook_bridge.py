@@ -310,17 +310,30 @@ class Bridge:
         return fut
 
     async def _wait_ready(self, timeout: float) -> Dict[str, Any]:
-        """Send kernel_info until the kernel answers (works while reader tasks run)."""
+        """Send kernel_info until the kernel answers on shell *and* iopub.
+
+        iopub is a PUB/SUB socket: until our subscription has reached the kernel,
+        its messages are silently dropped, so the first cell's output could be lost
+        (seen on fast Linux machines). Seeing the iopub "idle" status for our own
+        kernel_info request proves the subscription is live.
+        """
         assert self.loop is not None
         deadline = self.loop.time() + timeout
+        info: Optional[Dict[str, Any]] = None
         while True:
             msg_id = self.kc.kernel_info()
             fut = self._request(msg_id)
+            idle = asyncio.Event()
+            self.idle[msg_id] = idle
             try:
                 reply = await asyncio.wait_for(asyncio.shield(fut), 1.0)
-                return reply.get("content") or {}
+                info = reply.get("content") or {}
+                await asyncio.wait_for(idle.wait(), 0.5)
+                return info
             except asyncio.TimeoutError:
                 self.replies.pop(msg_id, None)
+                if info is not None and self.loop.time() > deadline:
+                    return info  # kernel answers but iopub stays silent: go on anyway
                 if not await self.km.is_alive():
                     raise BridgeError(
                         "start_failed", "kernel process exited during startup (see :Cellbook log)"
@@ -329,6 +342,8 @@ class Bridge:
                     raise BridgeError(
                         "start_failed", "kernel did not reply to kernel_info within %ds" % timeout
                     ) from None
+            finally:
+                self.idle.pop(msg_id, None)
 
     def _require_kernel(self) -> None:
         if self.km is None or self.kc is None:
