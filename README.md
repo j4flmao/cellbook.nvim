@@ -5,6 +5,7 @@
 **Jupyter notebooks in Neovim.** Open the `.ipynb`, run it, see the plots.<br>
 No browser. No conversion. No remote plugin host.
 
+[![CI](https://github.com/j4flmao/cellbook.nvim/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/j4flmao/cellbook.nvim/actions/workflows/ci.yml)
 [![Neovim](https://img.shields.io/badge/Neovim-0.11%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![Lua](https://img.shields.io/badge/Lua-5.1%20%2F%20LuaJIT-2C2D72?logo=lua&logoColor=white)](https://luajit.org)
 [![uv](https://img.shields.io/badge/Python-uv%20ready-DE5FE9?logo=python&logoColor=white)](https://docs.astral.sh/uv/)
